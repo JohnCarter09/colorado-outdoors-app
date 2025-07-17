@@ -4,6 +4,7 @@
 import puppeteer, { Browser, Page } from 'puppeteer';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import ArcGISDataService from './ArcGISDataService';
 
 // Types for our scraped data
 export interface TroutStockingRecord {
@@ -85,6 +86,7 @@ export class ColoradoOutdoorsScraper {
   private baseUrl = 'https://cpw.state.co.us';
   private browser: Browser | null = null;
   private page: Page | null = null;
+  private arcgisService = new ArcGISDataService();
   private config = {
     userAgent: process.env.SCRAPING_USER_AGENT || 'ColoradoOutdoors/1.0',
     delay: parseInt(process.env.SCRAPING_DELAY_MS || '2000'),
@@ -124,11 +126,57 @@ export class ColoradoOutdoorsScraper {
   // ==========================================
   
   async scrapeTroutStocking(): Promise<TroutStockingRecord[]> {
+    console.log('🎣 Starting enhanced trout stocking scrape with ArcGIS API...');
+    
+    try {
+      // PRIMARY SOURCE: Official Colorado ArcGIS API (fast and reliable)
+      console.log('📡 Fetching data from Colorado ArcGIS API...');
+      const arcgisData = await this.arcgisService.getTroutStockingData();
+      const apiRecords = arcgisData.map(point => 
+        this.arcgisService.convertToTroutStockingRecord(point)
+      );
+      
+      console.log(`✅ Retrieved ${apiRecords.length} records from official ArcGIS API`);
+      
+      // SECONDARY SOURCE: Web scraping as backup/supplement (optional)
+      let webRecords: TroutStockingRecord[] = [];
+      try {
+        if (this.page) {
+          console.log('🌐 Supplementing with web scraping data...');
+          webRecords = await this.scrapeWebStockingData();
+          console.log(`✅ Retrieved ${webRecords.length} additional records from web scraping`);
+        }
+      } catch (webError) {
+        console.warn('⚠️ Web scraping failed, using API data only:', webError.message);
+      }
+      
+      // Combine and deduplicate data sources
+      const allRecords = [...apiRecords, ...webRecords];
+      const deduplicatedRecords = this.deduplicateStockingRecords(allRecords);
+      
+      console.log(`🎯 Total processed records: ${deduplicatedRecords.length} (${apiRecords.length} from API, ${webRecords.length} from web)`);
+      return deduplicatedRecords;
+      
+    } catch (apiError) {
+      console.error('❌ ArcGIS API failed, falling back to web-only scraping:', apiError.message);
+      
+      // FALLBACK: Web scraping only if API completely fails
+      if (!this.page) {
+        throw new Error('Scraper not initialized and API failed. Call init() first.');
+      }
+      return this.scrapeWebStockingData();
+    }
+  }
+
+  /**
+   * Original web scraping method as backup
+   */
+  private async scrapeWebStockingData(): Promise<TroutStockingRecord[]> {
     if (!this.page) {
-      throw new Error('Scraper not initialized. Call init() first.');
+      throw new Error('Page not available for web scraping');
     }
 
-    console.log('🎣 Starting trout stocking scrape...');
+    console.log('🌐 Starting traditional web scraping as backup...');
     const stockingData: TroutStockingRecord[] = [];
     
     const stockingUrls = [
@@ -552,6 +600,132 @@ export class ColoradoOutdoorsScraper {
     } finally {
       await this.close();
     }
+  }
+
+  // ==========================================
+  // NEW ARCGIS-POWERED METHODS
+  // ==========================================
+
+  /**
+   * Get Gold Medal Waters (premium trout fishing locations)
+   */
+  async scrapeGoldMedalWaters(): Promise<any[]> {
+    console.log('🏆 Fetching Gold Medal Waters from Colorado ArcGIS API...');
+    
+    try {
+      const goldMedalData = await this.arcgisService.getGoldMedalWaters();
+      const allGoldMedal = [...goldMedalData.streams, ...goldMedalData.lakes];
+      
+      console.log(`✅ Retrieved ${goldMedalData.streams.length} Gold Medal Streams and ${goldMedalData.lakes.length} Gold Medal Lakes`);
+      
+      return allGoldMedal.map(water => ({
+        id: `gold-medal-${water.objectId}`,
+        name: water.attributes.WATER_NAME || 'Unknown Water',
+        stretchName: water.attributes.STRETCH_NAME,
+        county: water.attributes.COUNTY,
+        description: water.attributes.DESCRIPTION,
+        type: goldMedalData.streams.includes(water) ? 'stream' : 'lake',
+        geometry: water.geometry,
+        source: 'colorado-arcgis-api',
+        lastUpdated: new Date()
+      }));
+      
+    } catch (error) {
+      console.error('❌ Gold Medal Waters scraping failed:', error);
+      throw new Error(`Failed to fetch Gold Medal Waters: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get fishing regulations for specific water bodies
+   */
+  async scrapeFishingRegulations(waterBodyName?: string): Promise<any[]> {
+    console.log(`📋 Fetching fishing regulations${waterBodyName ? ` for ${waterBodyName}` : ''}...`);
+    
+    try {
+      const regulations = await this.arcgisService.getFishingRegulations(waterBodyName);
+      
+      console.log(`✅ Retrieved ${regulations.length} fishing regulation records`);
+      
+      return regulations.map(reg => ({
+        id: `regulation-${reg.objectId}`,
+        waterName: reg.attributes.WATER_NAME || 'Unknown Water',
+        regulationType: reg.attributes.REGULATION_TYPE,
+        description: reg.attributes.DESCRIPTION || reg.attributes.REGULATIONS,
+        effective: reg.attributes.EFFECTIVE_DATE,
+        geometry: reg.geometry,
+        source: 'colorado-arcgis-api',
+        lastUpdated: new Date()
+      }));
+      
+    } catch (error) {
+      console.error('❌ Fishing regulations scraping failed:', error);
+      throw new Error(`Failed to fetch fishing regulations: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get all fishing locations (not just stocked)
+   */
+  async scrapeAllFishingLocations(): Promise<any[]> {
+    console.log('🎣 Fetching all fishing locations from Colorado ArcGIS API...');
+    
+    try {
+      const allLocations = await this.arcgisService.getAllFishingLocations();
+      
+      console.log(`✅ Retrieved ${allLocations.length} total fishing locations`);
+      
+      return allLocations.map(location => 
+        this.arcgisService.convertToTroutStockingRecord(location)
+      );
+      
+    } catch (error) {
+      console.error('❌ All fishing locations scraping failed:', error);
+      throw new Error(`Failed to fetch all fishing locations: ${error.message}`);
+    }
+  }
+
+  // ==========================================
+  // HELPER METHODS
+  // ==========================================
+
+  /**
+   * Deduplicate stocking records based on key fields
+   */
+  private deduplicateStockingRecords(records: TroutStockingRecord[]): TroutStockingRecord[] {
+    const seen = new Map<string, TroutStockingRecord>();
+    
+    for (const record of records) {
+      const key = `${record.waterBody}-${record.county}-${record.species}`.toLowerCase();
+      
+      // Keep the record with more complete data (API records typically have more fields)
+      if (!seen.has(key) || this.isMoreComplete(record, seen.get(key)!)) {
+        seen.set(key, record);
+      }
+    }
+    
+    const deduplicated = Array.from(seen.values());
+    console.log(`🔄 Deduplicated ${records.length} records to ${deduplicated.length}`);
+    
+    return deduplicated;
+  }
+
+  /**
+   * Determine if a record is more complete than another
+   */
+  private isMoreComplete(record1: TroutStockingRecord, record2: TroutStockingRecord): boolean {
+    const getCompleteness = (record: TroutStockingRecord): number => {
+      let score = 0;
+      if (record.latitude && record.longitude) score += 2;
+      if (record.elevation) score += 1;
+      if (record.accessInfo) score += 1;
+      if (record.fishingPressure) score += 1;
+      if (record.fishingOpportunities) score += 1;
+      if (record.source === 'colorado-arcgis-api') score += 3; // Prefer API data
+      return score;
+    };
+    
+    return getCompleteness(record1) > getCompleteness(record2);
   }
 }
 
