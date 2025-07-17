@@ -13,20 +13,19 @@ export async function GET(request: NextRequest) {
     
     console.log('🚀 Starting automated scraping job...')
     
-    // Trigger trout stocking scrape
-    const troutResponse = await fetch(`${baseUrl}/api/scrape/trout-stocking`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    })
+    // Run both scrapers in parallel for efficiency
+    const [troutResponse, waterResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/scrape/trout-stocking`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      }),
+      fetch(`${baseUrl}/api/scrape/water-conditions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+    ])
     
     const troutResult = troutResponse.ok ? await troutResponse.json() : null
-    
-    // Trigger water conditions scrape  
-    const waterResponse = await fetch(`${baseUrl}/api/scrape/all-data`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' }
-    })
-    
     const waterResult = waterResponse.ok ? await waterResponse.json() : null
     
     const result = {
