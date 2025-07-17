@@ -1,0 +1,145 @@
+// Colorado Outdoors App - Database Schema
+// Prisma schema for Colorado Parks & Wildlife data
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Trout Stocking Records
+model TroutStocking {
+  id              String   @id @default(cuid())
+  location        String
+  waterBody       String
+  county          String?
+  species         String
+  size            String?
+  quantity        Int
+  stockingDate    DateTime
+  nextStockingDate DateTime?
+  latitude        Float?
+  longitude       Float?
+  waterBodyType   String?
+  accessInfo      String?
+  regulations     String?
+  source          String   @default("cpw-website")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([location, stockingDate])
+  @@index([stockingDate])
+  @@index([species])
+  @@map("trout_stocking")
+}
+
+// Water Conditions
+model WaterCondition {
+  id                String   @id @default(cuid())
+  waterBody         String
+  location          String
+  lastUpdated       DateTime
+  waterLevel        String   // Low, Normal, High, Flood
+  waterTemperature  Float?
+  clarity           String   // Clear, Slightly Stained, Stained, Muddy
+  flow              String   // Low, Normal, High
+  fishingConditions String   // Poor, Fair, Good, Excellent
+  notes             String?
+  weatherImpact     String?
+  source            String   @default("cpw-website")
+  createdAt         DateTime @default(now())
+  
+  @@index([waterBody])
+  @@index([lastUpdated])
+  @@index([fishingConditions])
+  @@map("water_conditions")
+}
+
+// Outdoor Events
+model OutdoorEvent {
+  id                  String   @id @default(cuid())
+  title               String
+  description         String?
+  eventType           String   // Fishing, Hunting, Wildlife Viewing, Education, General
+  location            String
+  latitude            Float?
+  longitude           Float?
+  startDate           DateTime
+  endDate             DateTime?
+  cost                Float?
+  registrationRequired Boolean @default(false)
+  registrationUrl     String?
+  contactInfo         String?
+  ageRestrictions     String?
+  capacity            Int?
+  difficulty          String?  // Easy, Moderate, Difficult
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([eventType, startDate])
+  @@index([startDate])
+  @@index([location])
+  @@map("outdoor_events")
+}
+
+// Hunting Information
+model HuntingInfo {
+  id                  String   @id @default(cuid())
+  species             String
+  seasonStartDate     DateTime
+  seasonEndDate       DateTime
+  seasonDescription   String?
+  units               String[] // Array of hunting units
+  licenseRequired     String[] // Array of required licenses
+  dailyBagLimit       Int?
+  possessionLimit     Int?
+  seasonLimit         Int?
+  weaponRestrictions  String[]
+  specialRules        String[]
+  applicationDeadline DateTime?
+  drawResults         DateTime?
+  tags                String[]
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([species])
+  @@index([seasonStartDate, seasonEndDate])
+  @@map("hunting_info")
+}
+
+// Park Information
+model ParkInfo {
+  id                  String   @id @default(cuid())
+  name                String
+  type                String   // State Park, Wildlife Area, State Forest, Recreation Area
+  location            String
+  latitude            Float
+  longitude           Float
+  amenities           String[]
+  activities          String[]
+  dailyPassFee        Float?
+  annualPassFee       Float?
+  campingFee          Float?
+  summerHours         String?
+  winterHours         String?
+  currentHours        String
+  campingAvailable    Boolean  @default(false)
+  reservationRequired Boolean?
+  petPolicy           String?
+  accessibility       String[]
+  currentConditions   String?
+  alerts              String[]
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([name])
+  @@index([type])
+  @@index([location])
+  @@map("park_info")
+}

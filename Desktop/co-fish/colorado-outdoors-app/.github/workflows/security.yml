@@ -1,0 +1,215 @@
+name: 🔒 Security Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security scans daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+jobs:
+  security-tests:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run dependency vulnerability scan
+      run: npm audit --audit-level=moderate
+      
+    - name: Run security linting
+      run: npm run security:lint
+      
+    - name: Run security tests
+      run: npm run test:security
+      
+    - name: Check for hardcoded secrets
+      run: |
+        if grep -r -i --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
+          -E "(sk_test_|sk_live_|pk_test_|pk_live_|AIza[0-9A-Za-z\\-_]{35}|ya29\\.[0-9A-Za-z\\-_]+)" src/; then
+          echo "⚠️ Potential hardcoded secrets found!"
+          exit 1
+        else
+          echo "✅ No hardcoded secrets detected"
+        fi
+        
+    - name: Security header check
+      run: |
+        echo "🔍 Checking for security headers configuration..."
+        if [ -f "next.config.ts" ]; then
+          if grep -q "headers\|security\|Content-Security-Policy" next.config.ts; then
+            echo "✅ Security headers configuration found"
+          else
+            echo "⚠️ Consider adding security headers to next.config.ts"
+          fi
+        fi
+        
+    - name: Check environment configuration
+      run: |
+        echo "🔍 Checking environment configuration..."
+        if [ -f ".env.example" ]; then
+          if grep -q -E "(your-|<|>|example|placeholder)" .env.example; then
+            echo "✅ Environment example file looks safe"
+          else
+            echo "⚠️ Environment example file may contain real secrets"
+            exit 1
+          fi
+        fi
+
+  dependency-audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install audit-ci
+      run: npm install -g audit-ci
+      
+    - name: Run audit-ci
+      run: audit-ci --moderate
+      
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: TypeScript type checking
+      run: npx tsc --noEmit
+      
+    - name: Run ESLint with security rules
+      run: npx eslint --config .eslintrc.security.js src/**/*.{ts,tsx} --format json --output-file eslint-results.json || true
+      
+    - name: Parse ESLint results
+      run: |
+        if [ -f "eslint-results.json" ]; then
+          SECURITY_ISSUES=$(node -e "
+            const results = require('./eslint-results.json');
+            const securityIssues = results.flatMap(file => 
+              file.messages.filter(msg => 
+                msg.ruleId && msg.ruleId.startsWith('security/')
+              )
+            );
+            console.log(securityIssues.length);
+          ")
+          
+          if [ "$SECURITY_ISSUES" -gt "0" ]; then
+            echo "🚨 Found $SECURITY_ISSUES security issues!"
+            node -e "
+              const results = require('./eslint-results.json');
+              results.forEach(file => {
+                const securityMessages = file.messages.filter(msg => 
+                  msg.ruleId && msg.ruleId.startsWith('security/')
+                );
+                if (securityMessages.length > 0) {
+                  console.log(\`File: \${file.filePath}\`);
+                  securityMessages.forEach(msg => {
+                    console.log(\`  Line \${msg.line}: \${msg.message} (\${msg.ruleId})\`);
+                  });
+                }
+              });
+            "
+            exit 1
+          else
+            echo "✅ No security issues found in ESLint scan"
+          fi
+        fi
+
+  api-security:
+    name: API Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: npm ci
+      
+    - name: Run API security tests
+      run: npm run test:security -- --testNamePattern="API Security|Authentication|Authorization"
+      
+    - name: Check API route security patterns
+      run: |
+        echo "🔍 Checking API routes for security patterns..."
+        
+        # Check that all API routes have auth checks
+        API_ROUTES=$(find src/app/api -name "route.ts" -o -name "route.tsx")
+        for route in $API_ROUTES; do
+          if ! grep -q "auth()" "$route"; then
+            echo "⚠️ API route $route may be missing authentication check"
+          fi
+        done
+        
+        # Check for proper error handling
+        for route in $API_ROUTES; do
+          if ! grep -q "try.*catch\|catch.*error" "$route"; then
+            echo "⚠️ API route $route may be missing error handling"
+          fi
+        done
+        
+        echo "✅ API security pattern check completed"
+
+  security-summary:
+    name: Security Summary
+    runs-on: ubuntu-latest
+    needs: [security-tests, dependency-audit, code-quality, api-security]
+    if: always()
+    
+    steps:
+    - name: Security Summary
+      run: |
+        echo "🔒 Security Testing Summary"
+        echo "========================="
+        echo "✅ Security tests: ${{ needs.security-tests.result }}"
+        echo "✅ Dependency audit: ${{ needs.dependency-audit.result }}"
+        echo "✅ Code quality: ${{ needs.code-quality.result }}"
+        echo "✅ API security: ${{ needs.api-security.result }}"
+        
+        if [[ "${{ needs.security-tests.result }}" == "success" && 
+              "${{ needs.dependency-audit.result }}" == "success" && 
+              "${{ needs.code-quality.result }}" == "success" && 
+              "${{ needs.api-security.result }}" == "success" ]]; then
+          echo "🎉 All security checks passed!"
+        else
+          echo "🚨 Some security checks failed - please review the logs above"
+          exit 1
+        fi

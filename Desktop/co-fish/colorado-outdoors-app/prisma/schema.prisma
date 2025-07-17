@@ -1,0 +1,319 @@
+// Colorado Outdoors App - Database Schema
+// Prisma schema for Colorado Parks & Wildlife data
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Trout Stocking Records
+model TroutStocking {
+  id              String   @id @default(cuid())
+  location        String
+  waterBody       String
+  county          String?
+  species         String
+  size            String?
+  quantity        Int
+  stockingDate    DateTime
+  nextStockingDate DateTime?
+  latitude        Float?
+  longitude       Float?
+  waterBodyType   String?
+  accessInfo      String?
+  regulations     String?
+  source          String   @default("cpw-website")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  // Relations
+  favorites       UserFavorite[]
+  tripPlanItems   TripPlanItem[]
+  
+  @@unique([location, stockingDate], name: "location_stockingDate")
+  @@index([location, stockingDate])
+  @@index([stockingDate])
+  @@index([species])
+  @@map("trout_stocking")
+}
+
+// Water Conditions
+model WaterCondition {
+  id                String   @id @default(cuid())
+  waterBody         String
+  location          String
+  lastUpdated       DateTime
+  waterLevel        String   // Low, Normal, High, Flood
+  waterTemperature  Float?
+  clarity           String   // Clear, Slightly Stained, Stained, Muddy
+  flow              String   // Low, Normal, High
+  fishingConditions String   // Poor, Fair, Good, Excellent
+  notes             String?
+  weatherImpact     String?
+  source            String   @default("cpw-website")
+  createdAt         DateTime @default(now())
+  
+  @@index([waterBody])
+  @@index([lastUpdated])
+  @@index([fishingConditions])
+  @@map("water_conditions")
+}
+
+// Outdoor Events
+model OutdoorEvent {
+  id                  String   @id @default(cuid())
+  title               String
+  description         String?
+  eventType           String   // Fishing, Hunting, Wildlife Viewing, Education, General
+  location            String
+  latitude            Float?
+  longitude           Float?
+  startDate           DateTime
+  endDate             DateTime?
+  cost                Float?
+  registrationRequired Boolean @default(false)
+  registrationUrl     String?
+  contactInfo         String?
+  ageRestrictions     String?
+  capacity            Int?
+  difficulty          String?  // Easy, Moderate, Difficult
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  favorites           UserFavorite[]
+  tripPlanItems       TripPlanItem[]
+  
+  @@index([eventType, startDate])
+  @@index([startDate])
+  @@index([location])
+  @@map("outdoor_events")
+}
+
+// Hunting Information
+model HuntingInfo {
+  id                  String   @id @default(cuid())
+  species             String
+  seasonStartDate     DateTime
+  seasonEndDate       DateTime
+  seasonDescription   String?
+  units               String   // JSON string of hunting units
+  licenseRequired     String   // JSON string of required licenses
+  dailyBagLimit       Int?
+  possessionLimit     Int?
+  seasonLimit         Int?
+  weaponRestrictions  String   // JSON string of weapon restrictions
+  specialRules        String   // JSON string of special rules
+  applicationDeadline DateTime?
+  drawResults         DateTime?
+  tags                String   // JSON string of tags
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  @@index([species])
+  @@index([seasonStartDate, seasonEndDate])
+  @@map("hunting_info")
+}
+
+// Park Information
+model ParkInfo {
+  id                  String   @id @default(cuid())
+  name                String
+  type                String   // State Park, Wildlife Area, State Forest, Recreation Area
+  location            String
+  latitude            Float
+  longitude           Float
+  amenities           String   // JSON string of amenities
+  activities          String   // JSON string of activities
+  dailyPassFee        Float?
+  annualPassFee       Float?
+  campingFee          Float?
+  summerHours         String?
+  winterHours         String?
+  currentHours        String
+  campingAvailable    Boolean  @default(false)
+  reservationRequired Boolean?
+  petPolicy           String?
+  accessibility       String   // JSON string of accessibility features
+  currentConditions   String?
+  alerts              String   // JSON string of alerts
+  source              String   @default("cpw-website")
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  
+  // Relations
+  favorites           UserFavorite[]
+  tripPlanItems       TripPlanItem[]
+  
+  @@index([name])
+  @@index([type])
+  @@index([location])
+  @@map("park_info")
+}
+
+// User Authentication & Profiles
+model User {
+  id                String   @id @default(cuid())
+  clerkId           String   @unique  // Clerk user ID
+  email             String   @unique
+  firstName         String?
+  lastName          String?
+  name              String?
+  imageUrl          String?
+  avatar            String?
+  emailVerified     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  // User preferences and relationships
+  preferences       UserPreferences?
+  favoriteLocations UserFavorite[]
+  tripPlans         TripPlan[]
+  subscriptions     UserSubscription[]
+  
+  @@map("users")
+}
+
+// User Preferences
+model UserPreferences {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  preferredSpecies   String   // JSON string of preferred species
+  homeLocation       String?  // "Denver, CO"
+  notificationsEmail Boolean  @default(true)
+  notificationsPush  Boolean  @default(false)
+  interests          String   // JSON string of interests
+  
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+// User Favorites
+model UserFavorite {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  // Can be linked to different types of content
+  troutStockingId String?
+  troutStocking   TroutStocking? @relation(fields: [troutStockingId], references: [id], onDelete: Cascade)
+  
+  parkInfoId      String?
+  parkInfo        ParkInfo? @relation(fields: [parkInfoId], references: [id], onDelete: Cascade)
+  
+  eventId         String?
+  event           OutdoorEvent? @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  
+  // Custom location data
+  customLocation  String?
+  latitude        Float?
+  longitude       Float?
+  notes           String?
+  
+  createdAt       DateTime @default(now())
+  
+  @@unique([userId, troutStockingId])
+  @@unique([userId, parkInfoId])
+  @@unique([userId, eventId])
+  @@map("user_favorites")
+}
+
+// Trip Planning
+model TripPlan {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title           String
+  description     String?
+  startDate       DateTime
+  endDate         DateTime?
+  participants    Int      @default(1)
+  
+  // Trip items
+  items           TripPlanItem[]
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("trip_plans")
+}
+
+model TripPlanItem {
+  id              String   @id @default(cuid())
+  tripPlanId      String
+  tripPlan        TripPlan @relation(fields: [tripPlanId], references: [id], onDelete: Cascade)
+  
+  // Can link to different types of activities
+  type            String   // "trout_stocking", "park", "event", "custom"
+  
+  troutStockingId String?
+  troutStocking   TroutStocking? @relation(fields: [troutStockingId], references: [id])
+  
+  parkInfoId      String?
+  parkInfo        ParkInfo? @relation(fields: [parkInfoId], references: [id])
+  
+  eventId         String?
+  event           OutdoorEvent? @relation(fields: [eventId], references: [id])
+  
+  // Custom activity data
+  customTitle     String?
+  customLocation  String?
+  latitude        Float?
+  longitude       Float?
+  
+  scheduledTime   DateTime?
+  estimatedDuration Int?  // in minutes
+  notes           String?
+  completed       Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@map("trip_plan_items")
+}
+
+// User Subscriptions for notifications
+model UserSubscription {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  type            String   // "location", "species", "event_type"
+  value           String   // specific location, species, or event type
+  
+  notifyEmail     Boolean  @default(true)
+  notifyPush      Boolean  @default(false)
+  
+  createdAt       DateTime @default(now())
+  
+  @@unique([userId, type, value])
+  @@map("user_subscriptions")
+}
+
+// Data Sync Tracking
+model DataSyncLog {
+  id              String   @id @default(cuid())
+  type            String   // "trout_stocking", "water_conditions", "events", etc.
+  status          String   // "success", "error", "partial"
+  recordsProcessed Int     @default(0)
+  recordsAdded    Int      @default(0)
+  recordsUpdated  Int      @default(0)
+  errorMessage    String?
+  executionTime   Int?     // in milliseconds
+  
+  createdAt       DateTime @default(now())
+  
+  @@index([type, createdAt])
+  @@map("data_sync_logs")
+}
